@@ -119,7 +119,7 @@ train_dataset, test_dataset = random_split(full_dataset,
 
 # create dataloader (for batching)
 train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-test_dataloader = DataLoader(test_dataset, batch_size=len(test_dataset), shuffle=False)
+test_dataloader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
 print(f"Full dataset:\n\tExamples: {len(full_dataset)}\n\tShape of X: {X.shape}\n\tShape of y: {y.shape}")
 print(f"Train/test dataloader:\n\tTrain data batches: {len(train_dataloader)}\n\tTest data batches: {len(test_dataloader)}")
@@ -133,6 +133,32 @@ for batch, (Xt, yt) in enumerate(test_dataloader):
 
 # %%
 
+dataloader = test_dataloader
+model = model_no_activation
+loss_fn = nn.BCEWithLogitsLoss()
+
+def test(dataloader, model, loss_fn):
+    total_loss = 0
+    num_correct = 0
+    num_samples = len(dataloader.dataset)
+
+    model.eval()
+    with torch.no_grad():
+        for X, y in dataloader:
+            X, y = X.to(device), y.to(device)
+            pred = model(X)
+            total_loss += loss_fn(pred, y).item() * len(X) # by default computes the per-batch avg loss
+            if model.output_size == 1: # 1D binary classification
+                num_correct += ((pred > 0.5) == y).sum().item()
+
+    accuracy = num_correct / num_samples
+    avg_loss = total_loss / num_samples 
+    print(f"Test Error:\n\tAccuracy: {100*accuracy:>.1f}% | Avg Loss: {avg_loss:>.8f}")
+
+test(test_dataloader, model_no_activation, nn.BCEWithLogitsLoss())
+
+
+# %%
 
 
 def train(dataloader, model, loss_fn, optimizer):
