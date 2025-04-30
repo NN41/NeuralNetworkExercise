@@ -18,7 +18,7 @@ device = torch.accelerator.current_accelerator().type if torch.accelerator.is_av
 print(f"Using {device} device\n")
 
 class SimpleMLP(nn.Module):
-    def __init__(self, input_size=2, hidden_size=16, output_size=1, activation=None):
+    def __init__(self, input_size=2, hidden_size=4, output_size=1, activation=None):
         super().__init__()
 
         self.activation = activation
@@ -103,8 +103,8 @@ BATCH_SIZE = 64
 TEST_SPLIT_FRACTION = 0.2
 model = model_no_activation
 
-# X_np, y_np = make_moons(n_samples=500, noise=0.15, random_state=0)
-X_np, y_np = make_blobs(n_samples=500, centers=2, n_features=2, random_state=0, cluster_std=0.5)
+X_np, y_np = make_moons(n_samples=500, noise=0.15, random_state=0)
+# X_np, y_np = make_blobs(n_samples=500, centers=2, n_features=2, random_state=0, cluster_std=0.5)
 plt.scatter(X_np[:,0], X_np[:,1], c=y_np)
 plt.show()
 
@@ -130,14 +130,9 @@ print(f"\n\tTest batches:")
 for batch, (Xt, yt) in enumerate(test_dataloader):
     print(f"\tBatch {batch+1} | X: shape {tuple(Xt.shape)} | y: shape {tuple(yt.shape)}, dtype {yt.dtype}")
 
-
 # %%
 
-dataloader = test_dataloader
-model = model_no_activation
-loss_fn = nn.BCEWithLogitsLoss()
-
-def test(dataloader, model, loss_fn):
+def test(dataloader, model, loss_fn, verbose=True):
     total_loss = 0
     num_correct = 0
     num_samples = len(dataloader.dataset)
@@ -153,61 +148,73 @@ def test(dataloader, model, loss_fn):
 
     accuracy = num_correct / num_samples
     avg_loss = total_loss / num_samples 
-    print(f"Test Error:\n\tAccuracy: {100*accuracy:>.1f}% | Avg Loss: {avg_loss:>.8f}")
+    if verbose:
+        print(f"Test Error:\n\tAccuracy: {100*accuracy:>.1f}% | Avg Loss: {avg_loss:>.8f}")
+    return accuracy, avg_loss
 
-test(test_dataloader, model_no_activation, nn.BCEWithLogitsLoss())
+def train(dataloader, model, loss_fn, optimizer, verbose=True):
+    num_samples = len(dataloader.dataset)
+    num_samples_processed = 0
 
-
-# %%
-
-
-def train(dataloader, model, loss_fn, optimizer):
-    size = len(dataloader.dataset)
     model.train()
+    optimizer.zero_grad()
     for batch, (X, y) in enumerate(dataloader):
-        X = X.to(device)
-        y = y.to(device)
+        X, y = X.to(device), y.to(device)
 
+        # make predictions
         pred = model(X)
         loss = loss_fn(pred, y)
 
-        loss.backward() # uses back-propagation to compute the gradients of the loss w.r.t. the model weights
-        optimizer.step() # updates the model weights based on the gradients
-        optimizer.zero_grad() # gradients are accumulated by default, this prepares them for the next minibatch
+        loss.backward() # backpropagate gradients
+        optimizer.step() # update weights
+        optimizer.zero_grad() # reset gradients
 
-        loss_value = loss.item()
-        current = (batch + 1) * len(X)
-        print(f"loss: {loss_value:>7f} [{current:>5d}/{size:>5d}]")
+        num_samples_processed += len(X)
+        if batch % 3 == 0 and verbose:
+            print(f"loss: {loss.item():>.7f}\t\t[processed {num_samples_processed:>5d}/{num_samples:>5d}]")
 
+# %%
 
+model = SimpleMLP(hidden_size=10, activation=nn.Tanh()).to(device)
+plot_predictions(model, choose_class=True)
+plot_predictions(model, choose_class=False)
 
-def test(dataloader, model, loss_fn):
-    size = len(dataloader.dataset)
-    num_batches = len(dataloader)
-    model.eval()
-    test_loss, correct = 0, 0
-    with torch.no_grad():
-        for X, y in dataloader:
-            X, y = X.to(device), y.to(device)
-            pred = model(X)
-            test_loss += loss_fn(pred, y).item()
-            if y.shape[1] == 1: # for binary classification
-                correct += ((pred > 0) == y).sum().item()
-    test_loss /= num_batches
-    correct /= size
-    print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f}\n")
+loss_fn = nn.BCEWithLogitsLoss()
+optimizer = torch.optim.SGD(model.parameters(), lr=0.1) # must be instantiated AFTER the model
 
+EPOCHS = 1
+test(test_dataloader, model, loss_fn)
+for t in range(EPOCHS):
+    print(f"\nEpoch {t+1}\n-------------------------------------")
+    train(train_dataloader, model, loss_fn, optimizer)
+    test(test_dataloader, model, loss_fn)
+print("Done!")
+
+plot_predictions(model, choose_class=True)
+plot_predictions(model, choose_class=False)
 
 
 # %%
 
 loss_fn = nn.BCEWithLogitsLoss()
-optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
-model = SimpleMLP(hidden_size=N_hidden, activation=None).to(device)
+activations_list = [None, nn.ReLU(), nn.Sigmoid(), nn.Tanh()]
+epochs_list = [2 ** p for p in range(9)]
+hidden_sizes_list = [2 ** p for p in range(8)]
 
-EPOCHS = 5
-for t in range(EPOCHS):
-    print(f"Epoch {t+1}\n-------------------------------------")
-    train(train_dataloader, model, loss_fn, optimizer)
-    test(test_dataloader, model, loss_fn)
-print("Done!")
+
+for act in activations_list:
+    for hid in hidden_sizes_list:
+        print(f"ACTIVATION {act} | HIDDEN SIZE {hid}")
+
+        model = SimpleMLP(hidden_size=hid, activation=act).to(device)
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+
+        acc, avg_loss = test(test_dataloader, model, loss_fn, verbose=False)
+        print(f"\tepoch {0:>5d} | acc {100*acc:>3.1f}% | avg loss {avg_loss:>.7f}")
+        for e in range(1,max(epochs_list)+1):
+            train(train_dataloader, model, loss_fn, optimizer, verbose=False)
+            if e in epochs_list:
+                acc, avg_loss = test(test_dataloader, model, loss_fn, verbose=False)
+                print(f"\tepoch {e:>5d} | acc {100*acc:>.1f}% | avg loss {avg_loss:>.7f}")
+
+
