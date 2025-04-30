@@ -1,47 +1,34 @@
-# %%
-# Set up
+# %% Set up
 
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.datasets import make_moons
+from sklearn.datasets import make_moons, make_blobs
 import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-# %%
-
 # X_np, y_np = make_moons(n_samples=500, noise=0.15, random_state=0)
-X_np, y_np = make_blobs(n_samples=300, centers=2, n_features=2, random_state=0, cluster_std=0.5)
-
+X_np, y_np = make_blobs(n_samples=500, centers=2, n_features=2, random_state=0, cluster_std=0.5)
 plt.scatter(X_np[:,0], X_np[:,1], c=y_np)
 
-X_train, X_test, y_train, y_test = train_test_split(X_np, y_np, test_size=0.33, random_state=0)
-
-
-X = torch.tensor(X_np, dtype=torch.float32, device=device)
-y = torch.tensor(y_np, dtype=torch.float32, device=device)
-X_train, X_test, y_train, y_test = torch.tensor(X_train, dtype=torch.float32, device=device), torch.tensor(X_test, dtype=torch.float32, device=device), torch.tensor(y_train, dtype=torch.float32, device=device), torch.tensor(y_test, dtype=torch.float32, device=device)
-
-
-# %% Exercise 1 & 2
+# %% Exercise 1
 
 device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
-print(f"Using {device} device")
-
-HIDDEN_SIZE = 16
+print(f"Using {device} device\n")
 
 class SimpleMLP(nn.Module):
-
-    def __init__(self, input_size=2, hidden_size=HIDDEN_SIZE, output_size=1, activation=None):
+    def __init__(self, input_size=2, hidden_size=16, output_size=1, activation=None):
         super().__init__()
 
-        # build the layers dynamically
         self.activation = activation
-        layers = [nn.Linear(input_size, hidden_size)]
-        if activation is not None: # must be a Pytorch module (nn.Module) or None
-            layers.append(self.activation) 
+        self.output_size = output_size
+
+        # build the layers dynamically
+        layers = []
+        layers.append(nn.Linear(input_size, hidden_size))
+        if activation is not None:
+            layers.append(activation) # must be a Pytorch module (nn.Module)
         layers.append(nn.Linear(hidden_size, output_size))
 
         self.stack = nn.Sequential(*layers)
@@ -49,95 +36,99 @@ class SimpleMLP(nn.Module):
     def forward(self, x):
         logits = self.stack(x)
         return logits
-    
-model = SimpleMLP().to(device) # moves the model to the GPU
-
-print(f"Model structure:\n{model}\n\n")
-for name, param in model.named_parameters():
-    print(f"Layer: {name} | Size: {param.size()} | Values : {param[:2]} \n")
 
 
-# sigmoid = nn.Sigmoid()
+def plot_predictions(model, choose_class=True, add_to_title=""):
 
-# logits = model(X)
-# pred_class = sigmoid(logits)
-# y
-
-# %%
-
-GRID_RESOLUTION = 0.02
-
-def plot_predictions(model, add_to_title=""):
-
+    GRID_RESOLUTION = 0.02
     x1_min, x1_max = X_np[:,0].min(), X_np[:,0].max()
     x2_min, x2_max = X_np[:,1].min(), X_np[:,1].max()
     xx1, xx2 = np.meshgrid(np.arange(x1_min, x1_max, GRID_RESOLUTION), np.arange(x2_min, x2_max, GRID_RESOLUTION))
 
     grid_points = np.c_[xx1.ravel(), xx2.ravel()]
     grid_tensor = torch.tensor(grid_points, dtype=torch.float32, device=device)
-    grid_pred_class = sigmoid(model(grid_tensor))
+    if model.output_size == 1:
+        grid_pred_class = nn.Sigmoid()(model(grid_tensor))
+        if choose_class:
+            grid_pred_class = (grid_pred_class > 0.5) * 1
     grid_pred_class = grid_pred_class.detach().cpu().numpy()
     grid_pred_class = grid_pred_class.reshape(xx1.shape)
 
     plt.figure(figsize=(8,8))
-    plt.contourf(xx1, xx2, grid_pred_class, cmap=plt.cm.coolwarm, alpha=0.8)
+    plt.contourf(xx1, xx2, grid_pred_class, cmap=plt.cm.coolwarm, alpha=0.8, vmin=0, vmax=1)
     plt.scatter(X_np[:,0], X_np[:,1], c=y_np, cmap=plt.cm.coolwarm, edgecolors='k', s=30)
     plt.title("Predicted classes and decision boundary" + add_to_title)
 
-plot_predictions(model)
+
+def print_model_info(model):
+    print(f"Model structure:\n{model}\n")
+    for name, param in model.named_parameters():
+        print(f"Layer: {name} | \n\tSize: {param.shape} | \n\tWeights for first unit in next layer : {param[:1]} \n")
+
+# X = torch.tensor(X_np, dtype=torch.float32, device=device)
+# y = torch.tensor(y_np, dtype=torch.float32, device=device)
+
+model = SimpleMLP().to(device) # moves the model to the GPU
+print_model_info(model)
+plot_predictions(model, choose_class=True)
+plot_predictions(model, choose_class=False)
 
 # %% Exercise 2
 # We are doing a binary classification using a single output variable. It is useful to estimate
 # not the output probabilities sigma(z), but rather the logits (log-probabilities) z, such that
 # we can use the nn.BCEWithLogitsLoss loss function for increased numerical stability.
+#
+# Note how no activation function always gives linear decision boundary, relu gives piecewise-linear,
+# and tanh and sigmoid give the same smooth boundary.
 
+HIDDEN_SIZE = 4
 
-N_hidden = 4
-model_no_activation = SimpleMLP(hidden_size=N_hidden, activation=None).to(device)
-model_relu = SimpleMLP(hidden_size=N_hidden, activation=nn.ReLU()).to(device)
-model_sigmoid = SimpleMLP(hidden_size=N_hidden, activation=nn.Sigmoid()).to(device)
-model_tanh = SimpleMLP(hidden_size=N_hidden, activation=nn.Tanh()).to(device)
+model_no_activation = SimpleMLP(hidden_size=HIDDEN_SIZE, activation=None).to(device)
+model_relu = SimpleMLP(hidden_size=HIDDEN_SIZE, activation=nn.ReLU()).to(device)
+model_sigmoid = SimpleMLP(hidden_size=HIDDEN_SIZE, activation=nn.Sigmoid()).to(device)
+model_tanh = SimpleMLP(hidden_size=HIDDEN_SIZE, activation=nn.Tanh()).to(device)
 models = [model_no_activation, model_relu, model_sigmoid, model_tanh]
 
-# %% 
-
 for m in models:
-    plot_predictions(model=m, add_to_title=f": activation function {m.activation}")
+    print_model_info(model=m)
+    plot_predictions(model=m, choose_class=False, add_to_title=f": activation function {m.activation}")
+    plot_predictions(model=m, choose_class=True, add_to_title=f": activation function {m.activation}")
+
 # %% Exercise 3 & 4
 # We use a single output variable for the binary classification, so we use BCE as a loss function
 
-model = model_no_activation
-
-
-
-# %%
-
 from torch.utils.data import Dataset, DataLoader, TensorDataset, random_split
 
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 TEST_SPLIT_FRACTION = 0.2
+model = model_no_activation
 
-X_np, y_np = make_moons(n_samples=500, noise=0.15, random_state=0)
+# X_np, y_np = make_moons(n_samples=500, noise=0.15, random_state=0)
+X_np, y_np = make_blobs(n_samples=500, centers=2, n_features=2, random_state=0, cluster_std=0.5)
+plt.scatter(X_np[:,0], X_np[:,1], c=y_np)
+plt.show()
+
+# create train and test datasets
 y_np = y_np.reshape((len(y_np),1))
 X = torch.tensor(X_np, dtype=torch.float32, device=device)
 y = torch.tensor(y_np, dtype=torch.float32, device=device)
-
-# train_dataloader = DataLoader()
 full_dataset = TensorDataset(X, y)
-print(f"Total number of examples in entire dataset: {len(full_dataset)}")
-
 train_dataset, test_dataset = random_split(full_dataset,
                                      [1-TEST_SPLIT_FRACTION, TEST_SPLIT_FRACTION],
                                      torch.Generator().manual_seed(42))
 
-train_dataloader = DataLoader(train_dataset, 
-                              batch_size=BATCH_SIZE,
-                              shuffle=True)
-test_dataloader = DataLoader(test_dataset, 
-                             batch_size=BATCH_SIZE,
-                             shuffle=False)
+# create dataloader (for batching)
+train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+test_dataloader = DataLoader(test_dataset, batch_size=len(test_dataset), shuffle=False)
 
-print(f"Number of batches in train/test dataloader: train {len(train_dataloader)}, test {len(test_dataloader)}")
+print(f"Full dataset:\n\tExamples: {len(full_dataset)}\n\tShape of X: {X.shape}\n\tShape of y: {y.shape}")
+print(f"Train/test dataloader:\n\tTrain data batches: {len(train_dataloader)}\n\tTest data batches: {len(test_dataloader)}")
+print(f"\n\tTrain batches:")
+for batch, (Xt, yt) in enumerate(train_dataloader):
+    print(f"\tBatch {batch+1} | X: shape {tuple(Xt.shape)} | y: shape {tuple(yt.shape)}, dtype {yt.dtype}")
+print(f"\n\tTest batches:")
+for batch, (Xt, yt) in enumerate(test_dataloader):
+    print(f"\tBatch {batch+1} | X: shape {tuple(Xt.shape)} | y: shape {tuple(yt.shape)}, dtype {yt.dtype}")
 
 
 # %%
