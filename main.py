@@ -150,6 +150,7 @@ def test(dataloader, model, loss_fn, verbose=True):
     avg_loss = total_loss / num_samples 
     if verbose:
         print(f"Test Error:\n\tAccuracy: {100*accuracy:>.1f}% | Avg Loss: {avg_loss:>.8f}")
+    
     return accuracy, avg_loss
 
 def train(dataloader, model, loss_fn, optimizer, verbose=True):
@@ -173,21 +174,45 @@ def train(dataloader, model, loss_fn, optimizer, verbose=True):
         if batch % 3 == 0 and verbose:
             print(f"loss: {loss.item():>.7f}\t\t[processed {num_samples_processed:>5d}/{num_samples:>5d}]")
 
+def grad_info(dataloader, model, loss_fn):
+
+    mean_abs_grad = 0
+    num_sat_weights = 0
+    num_weights = 0
+    model.train()
+    model.zero_grad()
+
+    X, y = next(iter(dataloader))
+
+    loss = loss_fn(model(X), y)
+    loss.backward()
+    for name, param in model.named_parameters():
+        mean_abs_grad += param.grad.abs().mean().item()
+        num_weights += param.numel()
+        num_sat_weights += (param.grad.abs() < 0.001).sum().item()
+        
+    frac_zero_grad = num_sat_weights / num_weights
+
+    return mean_abs_grad, frac_zero_grad
+
+
 # %%
 
-model = SimpleMLP(hidden_size=32, activation=nn.ReLU()).to(device)
+model = SimpleMLP(hidden_size=16, activation=nn.ReLU()).to(device)
 plot_predictions(model, choose_class=True)
 plot_predictions(model, choose_class=False)
 
 loss_fn = nn.BCEWithLogitsLoss()
 optimizer = torch.optim.SGD(model.parameters(), lr=0.1) # must be instantiated AFTER the model
 
-EPOCHS = 10
+EPOCHS = 1024
 test(test_dataloader, model, loss_fn)
 for t in range(EPOCHS):
     print(f"\nEpoch {t+1}\n-------------------------------------")
-    train(train_dataloader, model, loss_fn, optimizer)
+    train(train_dataloader, model, loss_fn, optimizer, verbose=False)
     test(test_dataloader, model, loss_fn)
+    # mean_abs_grad, frac_zero_grad = grad_info(test_dataloader, model, loss_fn)
+    # print(f"mean abs grad: {mean_abs_grad:>.5f}, frac zero grad: {frac_zero_grad:>.5f}")
 print("Done!")
 
 plot_predictions(model, choose_class=True)
@@ -215,8 +240,3 @@ for act in activations_list:
             if e in epochs_list:
                 acc, avg_loss = test(test_dataloader, model, loss_fn, verbose=False)
                 print(f"\tepoch {e:>5d} | acc {100*acc:>.1f}% | avg loss {avg_loss:>.7f}")
-
-
-# with only one hidden unit, the max accuracy is always around 84%
-# more hidden units, fewer epochs needed to converge to minimum test loss
-# sigmoid and tanh converge very badly. It plateus in the beginning, then changes quickly, then plateaus again.
