@@ -175,14 +175,14 @@ def train(dataloader, model, loss_fn, optimizer, verbose=True):
 
 # %%
 
-model = SimpleMLP(hidden_size=10, activation=nn.Tanh()).to(device)
+model = SimpleMLP(hidden_size=32, activation=nn.ReLU()).to(device)
 plot_predictions(model, choose_class=True)
 plot_predictions(model, choose_class=False)
 
 loss_fn = nn.BCEWithLogitsLoss()
 optimizer = torch.optim.SGD(model.parameters(), lr=0.1) # must be instantiated AFTER the model
 
-EPOCHS = 1
+EPOCHS = 10
 test(test_dataloader, model, loss_fn)
 for t in range(EPOCHS):
     print(f"\nEpoch {t+1}\n-------------------------------------")
@@ -198,9 +198,8 @@ plot_predictions(model, choose_class=False)
 
 loss_fn = nn.BCEWithLogitsLoss()
 activations_list = [None, nn.ReLU(), nn.Sigmoid(), nn.Tanh()]
-epochs_list = [2 ** p for p in range(9)]
-hidden_sizes_list = [2 ** p for p in range(8)]
-
+epochs_list = [2 ** p for p in range(11)]
+hidden_sizes_list = [2 ** p for p in range(10)]
 
 for act in activations_list:
     for hid in hidden_sizes_list:
@@ -218,3 +217,6 @@ for act in activations_list:
                 print(f"\tepoch {e:>5d} | acc {100*acc:>.1f}% | avg loss {avg_loss:>.7f}")
 
 
+# with only one hidden unit, the max accuracy is always around 84%
+# more hidden units, fewer epochs needed to converge to minimum test loss
+# sigmoid and tanh converge very badly. It plateus in the beginning, then changes quickly, then plateaus again.
