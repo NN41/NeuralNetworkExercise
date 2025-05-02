@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
 print(f"Using {device} device\n")
 
-NUM_CLASSES = 5
+NUM_CLASSES = 10
 USE_ONE_HOT = True
 if NUM_CLASSES > 2:
     USE_ONE_HOT = True
@@ -57,7 +57,8 @@ def plot_predictions(model, choose_class=True, add_to_title=""):
     x2_diff = x2_max - x2_min
     x1_min, x1_max = x1_min - x1_diff * 0.05, x1_max + x1_diff * 0.05
     x2_min, x2_max = x2_min - x2_diff * 0.05, x2_max + x2_diff * 0.05
-    xx1, xx2 = np.meshgrid(np.arange(x1_min, x1_max, GRID_RESOLUTION), np.arange(x2_min, x2_max, GRID_RESOLUTION))
+    xx1, xx2 = np.meshgrid(np.arange(x1_min, x1_max, GRID_RESOLUTION), 
+                           np.arange(x2_min, x2_max, GRID_RESOLUTION))
 
     grid_points = np.c_[xx1.ravel(), xx2.ravel()]
     grid_tensor = torch.tensor(grid_points, dtype=torch.float32, device=device)
@@ -70,9 +71,12 @@ def plot_predictions(model, choose_class=True, add_to_title=""):
     grid_pred_class = grid_pred_class.detach().cpu().numpy()
     grid_pred_class = grid_pred_class.reshape(xx1.shape)
 
+    cmap_to_use = plt.cm.tab10
+    vmax_val = max(1, model.output_size-1)
+
     plt.figure(figsize=(8,8))
-    plt.contourf(xx1, xx2, grid_pred_class, cmap=plt.cm.coolwarm, alpha=0.8, vmin=0, vmax=1)
-    plt.scatter(X_np[:,0], X_np[:,1], c=y_np, cmap=plt.cm.coolwarm, edgecolors='k', s=30)
+    plt.contourf(xx1, xx2, grid_pred_class, cmap=cmap_to_use, alpha=0.8, vmin=0, vmax=vmax_val)
+    plt.scatter(X_np[:,0], X_np[:,1], c=y_np, cmap=cmap_to_use, edgecolors='k', s=30)
     plt.title("Predicted classes and decision boundary" + add_to_title)
 
 
