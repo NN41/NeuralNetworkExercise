@@ -8,17 +8,27 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-# X_np, y_np = make_moons(n_samples=500, noise=0.15, random_state=0)
-X_np, y_np = make_blobs(n_samples=500, centers=2, n_features=2, random_state=0, cluster_std=0.5)
-plt.scatter(X_np[:,0], X_np[:,1], c=y_np)
-
-# %% Exercise 1
-
 device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
 print(f"Using {device} device\n")
 
+NUM_CLASSES = 5
+USE_ONE_HOT = True
+if NUM_CLASSES > 2:
+    USE_ONE_HOT = True
+
+# X_np, y_np = make_moons(n_samples=500, noise=0.15, random_state=0)
+X_np, y_np = make_blobs(n_samples=500, centers=NUM_CLASSES, n_features=2, random_state=0, cluster_std=1)
+plt.scatter(X_np[:,0], X_np[:,1], c=y_np)
+
+X = torch.tensor(X_np, dtype=torch.float32, device=device)
+y_class_values = torch.tensor(y_np.reshape((len(y_np),1)), device=device)
+y_one_hot = nn.functional.one_hot(y_class_values)
+y = y_one_hot if USE_ONE_HOT else y_class_values
+
+# %% Exercise 1
+
 class SimpleMLP(nn.Module):
-    def __init__(self, input_size=2, hidden_size=4, output_size=1, activation=None):
+    def __init__(self, input_size=2, hidden_size=4, output_size=NUM_CLASSES, activation=None):
         super().__init__()
 
         self.activation = activation
@@ -43,6 +53,10 @@ def plot_predictions(model, choose_class=True, add_to_title=""):
     GRID_RESOLUTION = 0.02
     x1_min, x1_max = X_np[:,0].min(), X_np[:,0].max()
     x2_min, x2_max = X_np[:,1].min(), X_np[:,1].max()
+    x1_diff = x1_max - x1_min
+    x2_diff = x2_max - x2_min
+    x1_min, x1_max = x1_min - x1_diff * 0.05, x1_max + x1_diff * 0.05
+    x2_min, x2_max = x2_min - x2_diff * 0.05, x2_max + x2_diff * 0.05
     xx1, xx2 = np.meshgrid(np.arange(x1_min, x1_max, GRID_RESOLUTION), np.arange(x2_min, x2_max, GRID_RESOLUTION))
 
     grid_points = np.c_[xx1.ravel(), xx2.ravel()]
@@ -51,6 +65,8 @@ def plot_predictions(model, choose_class=True, add_to_title=""):
         grid_pred_class = nn.Sigmoid()(model(grid_tensor))
         if choose_class:
             grid_pred_class = (grid_pred_class > 0.5) * 1
+    else:
+        grid_pred_class = nn.Softmax()(model(grid_tensor)).argmax(dim=1)
     grid_pred_class = grid_pred_class.detach().cpu().numpy()
     grid_pred_class = grid_pred_class.reshape(xx1.shape)
 
@@ -65,13 +81,10 @@ def print_model_info(model):
     for name, param in model.named_parameters():
         print(f"Layer: {name} | \n\tSize: {param.shape} | \n\tWeights for first unit in next layer : {param[:1]} \n")
 
-# X = torch.tensor(X_np, dtype=torch.float32, device=device)
-# y = torch.tensor(y_np, dtype=torch.float32, device=device)
 
 model = SimpleMLP().to(device) # moves the model to the GPU
 print_model_info(model)
-plot_predictions(model, choose_class=True)
-plot_predictions(model, choose_class=False)
+plot_predictions(model, choose_class=True) # set choose_class to False for binary classification to see predicted probabilities
 
 # %% Exercise 2
 # We are doing a binary classification using a single output variable. It is useful to estimate
