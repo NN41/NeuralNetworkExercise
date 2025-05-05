@@ -157,14 +157,12 @@ nn.CrossEntropyLoss()(logits, y_classes)
 
 # %%
 
-logits = model(X)
-target = y.to(torch.long).flatten()
-
-((nn.Sigmoid()(logits) > 0.5) == y).sum() / len(X)
+test(test_dataloader, model)
 
 # %%
 
-def test(dataloader, model, loss_fn, verbose=True):
+def test(dataloader, model, verbose=True):
+
     total_loss = 0
     num_correct = 0
     num_samples = len(dataloader.dataset)
@@ -172,18 +170,25 @@ def test(dataloader, model, loss_fn, verbose=True):
     model.eval()
     with torch.no_grad():
         for X, y in dataloader:
-            X, y = X.to(device), y.to(device)
-            logits = model(X)
-            total_loss += loss_fn(logits, y).item() * len(X) # by default computes the per-batch avg loss
-            if model.output_size == 1: # 1D binary classification
-                num_correct += ((nn.Sigmoid()(logits) > 0.5) == y).sum().item()
+
+            # unnormalized logits z, where sigmoid(z) or softmax(z) contains the class probabilities
+            logits = model(X.to(device))
+
+            if model.output_size == 1: # 1-dimensional binary classification
+                y = y.to(device).to(torch.float32)
+                total_loss += nn.BCEWithLogitsLoss(reduction='sum')(logits, y)
+                num_correct += ((nn.Sigmoid()(logits) > 0.5) == y).sum()
+            else: # multidimensional multiclass classification
+                y = y.to(device).to(torch.long).flatten()
+                total_loss += nn.CrossEntropyLoss()(logits, y).item() * len(X)
+                num_correct += (nn.Softmax()(logits).argmax(dim=1) == y).sum().item()
 
     accuracy = num_correct / num_samples
     avg_loss = total_loss / num_samples 
     if verbose:
         print(f"Test Error:\n\tAccuracy: {100*accuracy:>.1f}% | Avg Loss: {avg_loss:>.8f}")
     
-    return accuracy, avg_loss
+    return accuracy.item(), avg_loss.item()
 
 
 def train(dataloader, model, loss_fn, optimizer, verbose=True):
