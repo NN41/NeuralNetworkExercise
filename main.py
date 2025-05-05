@@ -11,13 +11,13 @@ from torch.utils.data import DataLoader
 device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
 print(f"Using {device} device\n")
 
-NUM_CLASSES = 10
-USE_ONE_HOT = True
+NUM_CLASSES = 2
+USE_ONE_HOT = False
 if NUM_CLASSES > 2:
     USE_ONE_HOT = True
-
+OUTPUT_SIZE = NUM_CLASSES if NUM_CLASSES > 2 or USE_ONE_HOT else 1
 # X_np, y_np = make_moons(n_samples=500, noise=0.15, random_state=0)
-X_np, y_np = make_blobs(n_samples=500, centers=NUM_CLASSES, n_features=2, random_state=0, cluster_std=1)
+X_np, y_np = make_blobs(n_samples=1000, centers=NUM_CLASSES, n_features=2, random_state=0, cluster_std=1.5)
 plt.scatter(X_np[:,0], X_np[:,1], c=y_np)
 
 X = torch.tensor(X_np, dtype=torch.float32, device=device)
@@ -28,7 +28,7 @@ y = y_one_hot if USE_ONE_HOT else y_class_values
 # %% Exercise 1
 
 class SimpleMLP(nn.Module):
-    def __init__(self, input_size=2, hidden_size=4, output_size=NUM_CLASSES, activation=None):
+    def __init__(self, input_size=2, hidden_size=4, output_size=OUTPUT_SIZE, activation=None):
         super().__init__()
 
         self.activation = activation
@@ -100,16 +100,16 @@ plot_predictions(model, choose_class=True) # set choose_class to False for binar
 
 HIDDEN_SIZE = 4
 
-model_no_activation = SimpleMLP(hidden_size=HIDDEN_SIZE, activation=None).to(device)
-model_relu = SimpleMLP(hidden_size=HIDDEN_SIZE, activation=nn.ReLU()).to(device)
-model_sigmoid = SimpleMLP(hidden_size=HIDDEN_SIZE, activation=nn.Sigmoid()).to(device)
-model_tanh = SimpleMLP(hidden_size=HIDDEN_SIZE, activation=nn.Tanh()).to(device)
+model_no_activation     = SimpleMLP(hidden_size=HIDDEN_SIZE, activation=None).to(device)
+model_relu              = SimpleMLP(hidden_size=HIDDEN_SIZE, activation=nn.ReLU()).to(device)
+model_sigmoid           = SimpleMLP(hidden_size=HIDDEN_SIZE, activation=nn.Sigmoid()).to(device)
+model_tanh              = SimpleMLP(hidden_size=HIDDEN_SIZE, activation=nn.Tanh()).to(device)
 models = [model_no_activation, model_relu, model_sigmoid, model_tanh]
 
 for m in models:
-    print_model_info(model=m)
-    plot_predictions(model=m, choose_class=False, add_to_title=f": activation function {m.activation}")
-    plot_predictions(model=m, choose_class=True, add_to_title=f": activation function {m.activation}")
+    # print_model_info(model=m)
+    # plot_predictions(model=m, choose_class=False, add_to_title=f": activation function {m.activation}")
+    plot_predictions(model=m, add_to_title=f": activation function {m.activation}")
 
 # %% Exercise 3 & 4
 # We use a single output variable for the binary classification, so we use BCE as a loss function
@@ -120,7 +120,7 @@ BATCH_SIZE = 64
 TEST_SPLIT_FRACTION = 0.2
 model = model_no_activation
 
-X_np, y_np = make_moons(n_samples=500, noise=0.15, random_state=0)
+# X_np, y_np = make_moons(n_samples=500, noise=0.15, random_state=0)
 # X_np, y_np = make_blobs(n_samples=500, centers=2, n_features=2, random_state=0, cluster_std=0.5)
 plt.scatter(X_np[:,0], X_np[:,1], c=y_np)
 plt.show()
@@ -149,6 +149,21 @@ for batch, (Xt, yt) in enumerate(test_dataloader):
 
 # %%
 
+logits = model(X)
+pred_prob = nn.Softmax(dim=1)(logits)[0].detach().cpu().numpy().tolist()
+y_classes = y.to(torch.long).flatten()
+
+nn.CrossEntropyLoss()(logits, y_classes)
+
+# %%
+
+logits = model(X)
+target = y.to(torch.long).flatten()
+
+((nn.Sigmoid()(logits) > 0.5) == y).sum() / len(X)
+
+# %%
+
 def test(dataloader, model, loss_fn, verbose=True):
     total_loss = 0
     num_correct = 0
@@ -158,10 +173,10 @@ def test(dataloader, model, loss_fn, verbose=True):
     with torch.no_grad():
         for X, y in dataloader:
             X, y = X.to(device), y.to(device)
-            pred = model(X)
-            total_loss += loss_fn(pred, y).item() * len(X) # by default computes the per-batch avg loss
+            logits = model(X)
+            total_loss += loss_fn(logits, y).item() * len(X) # by default computes the per-batch avg loss
             if model.output_size == 1: # 1D binary classification
-                num_correct += ((pred > 0.5) == y).sum().item()
+                num_correct += ((nn.Sigmoid()(logits) > 0.5) == y).sum().item()
 
     accuracy = num_correct / num_samples
     avg_loss = total_loss / num_samples 
@@ -169,6 +184,7 @@ def test(dataloader, model, loss_fn, verbose=True):
         print(f"Test Error:\n\tAccuracy: {100*accuracy:>.1f}% | Avg Loss: {avg_loss:>.8f}")
     
     return accuracy, avg_loss
+
 
 def train(dataloader, model, loss_fn, optimizer, verbose=True):
     num_samples = len(dataloader.dataset)
@@ -216,11 +232,15 @@ def grad_info(dataloader, model, loss_fn):
 # %%
 
 model = SimpleMLP(hidden_size=16, activation=nn.ReLU()).to(device)
-plot_predictions(model, choose_class=True)
-plot_predictions(model, choose_class=False)
+# plot_predictions(model, choose_class=True)
+# plot_predictions(model, choose_class=False)
 
 loss_fn = nn.BCEWithLogitsLoss()
 optimizer = torch.optim.SGD(model.parameters(), lr=0.1) # must be instantiated AFTER the model
+
+model(X)
+
+# %%
 
 EPOCHS = 1024
 test(test_dataloader, model, loss_fn)
@@ -233,7 +253,7 @@ for t in range(EPOCHS):
 print("Done!")
 
 plot_predictions(model, choose_class=True)
-plot_predictions(model, choose_class=False)
+# plot_predictions(model, choose_class=False)
 
 
 # %%
