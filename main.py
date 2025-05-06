@@ -8,22 +8,31 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
+# device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
+device = "cpu"
 print(f"Using {device} device\n")
 
-NUM_CLASSES = 2
-USE_ONE_HOT = False
-if NUM_CLASSES > 2:
-    USE_ONE_HOT = True
-OUTPUT_SIZE = NUM_CLASSES if NUM_CLASSES > 2 or USE_ONE_HOT else 1
+# %%
+
+NUM_CLASSES = 3
+# USE_ONE_HOT = False
+# if NUM_CLASSES > 2:
+#     USE_ONE_HOT = True
+# OUTPUT_SIZE = NUM_CLASSES if NUM_CLASSES > 2 or USE_ONE_HOT else 1
+
 # X_np, y_np = make_moons(n_samples=500, noise=0.15, random_state=0)
 X_np, y_np = make_blobs(n_samples=1000, centers=NUM_CLASSES, n_features=2, random_state=0, cluster_std=1.5)
 plt.scatter(X_np[:,0], X_np[:,1], c=y_np)
 
 X = torch.tensor(X_np, dtype=torch.float32, device=device)
-y_class_values = torch.tensor(y_np.reshape((len(y_np),1)), device=device)
+# y_class_values = torch.tensor(y_np.reshape((len(y_np),1)), device=device)
+# y_one_hot = nn.functional.one_hot(y_class_values)
+# y = y_one_hot if USE_ONE_HOT else y_class_values
+# y = torch.tensor(y_np.reshape)
+
+# torch.tensor(y_np)
+y_class_values = torch.tensor(y_np).to(device)
 y_one_hot = nn.functional.one_hot(y_class_values)
-y = y_one_hot if USE_ONE_HOT else y_class_values
 
 # %% Exercise 1
 
@@ -149,11 +158,11 @@ for batch, (Xt, yt) in enumerate(test_dataloader):
 
 # %%
 
-logits = model(X)
-pred_prob = nn.Softmax(dim=1)(logits)[0].detach().cpu().numpy().tolist()
-y_classes = y.to(torch.long).flatten()
+# logits = model(X)
+# pred_prob = nn.Softmax(dim=1)(logits)[0].detach().cpu().numpy().tolist()
+# y_classes = y.to(torch.long).flatten()
 
-nn.CrossEntropyLoss()(logits, y_classes)
+# nn.CrossEntropyLoss()(logits, y_classes)
 
 # %%
 
