@@ -2,6 +2,7 @@
 import numpy as np
 from sklearn.datasets import make_moons, make_blobs
 import matplotlib.pyplot as plt
+import pandas as pd
 
 import torch
 import torch.nn as nn
@@ -158,53 +159,108 @@ def train(dataloader, model, optimizer, verbose=True):
         loss = nn.CrossEntropyLoss()(logits, y)
 
         # update parameters using SGD
+        optimizer.zero_grad() # reset gradients
         loss.backward() # backpropagate gradients
         optimizer.step() # update weights
-        optimizer.zero_grad() # reset gradients
 
         num_samples_processed += len(X)
         if batch % 2 == 0 and verbose:
             print(f"loss: {loss.item():>.7f}\t\t[processed {num_samples_processed:>5d}/{num_samples:>5d}]")
 
-# def grad_info(dataloader, model, loss_fn):
+def compute_norms(model):
+    param_l2_norms = {}
+    grad_l2_norms = {}
+    # param_names = []
 
-#     mean_abs_grad = 0
-#     num_sat_weights = 0
-#     num_weights = 0
-#     model.train()
-#     model.zero_grad()
+    for name, param in model.named_parameters():
 
-#     X, y = next(iter(dataloader))
+        # param_names.append(name)
 
-#     loss = loss_fn(model(X), y)
-#     loss.backward()
-#     for name, param in model.named_parameters():
-#         mean_abs_grad += param.grad.abs().mean().item()
-#         num_weights += param.numel()
-#         num_sat_weights += (param.grad.abs() < 0.001).sum().item()
-        
-#     frac_zero_grad = num_sat_weights / num_weights
+        param_l2_norm = torch.norm(param.data, p=2).item()
+        param_l2_norms[name] = param_l2_norm
 
-#     return mean_abs_grad, frac_zero_grad
+        if param.grad is not None:
+            grad_l2_norm = torch.norm(param.grad, p=2).item()
+        else:
+            grad_l2_norm = 0
+        grad_l2_norms[name] = grad_l2_norm
+
+    return param_l2_norms, grad_l2_norms
 
 # %% Perform a single training run
 
 EPOCHS = 2048
 
-model = SimpleMLP(hidden_size=512, activation=None).to(device)
-optimizer = torch.optim.SGD(model.parameters(), lr=0.001) # must be instantiated AFTER the model
+model = SimpleMLP(hidden_size=16, activation=nn.ReLU()).to(device)
+optimizer = torch.optim.SGD(model.parameters(), lr=0.05) # must be instantiated AFTER the model
 
-plot_predictions(model)
-test(test_dataloader, model)
-for t in range(EPOCHS):
-    print(f"\nEpoch {t+1}\n-------------------------------------")
+train_acc, train_loss = test(train_dataloader, model, verbose=False)
+test_acc, test_loss = test(test_dataloader, model)
+param_l2_norms, grad_l2_norms = compute_norms(model)
+initial_logs = {
+    'epoch': 0,
+    'train_accuracy': train_acc,
+    'train_loss': train_loss,
+    'test_accuracy': test_acc,
+    'test_loss': test_loss,
+    'param_norms': param_l2_norms,
+    'grad_norms': grad_l2_norms
+}
+
+logs = []
+logs.append(initial_logs)
+
+for epoch in range(EPOCHS):
+    print(f"\nEpoch {epoch+1}\n-------------------------------------")
     train(train_dataloader, model, optimizer, verbose=False)
-    test(test_dataloader, model)
-    # mean_abs_grad, frac_zero_grad = grad_info(test_dataloader, model, loss_fn)
-    # print(f"mean abs grad: {mean_abs_grad:>.5f}, frac zero grad: {frac_zero_grad:>.5f}")
-print("Done!")
+
+    train_acc, train_loss = test(train_dataloader, model, verbose=False)
+    test_acc, test_loss = test(test_dataloader, model)
+    param_l2_norms, grad_l2_norms = compute_norms(model)
+    log_entry = {
+        'epoch': epoch+1,
+        'train_accuracy': train_acc,
+        'train_loss': train_loss,
+        'test_accuracy': test_acc,
+        'test_loss': test_loss,
+        'param_norms': param_l2_norms,
+        'grad_norms': grad_l2_norms
+    }
+    logs.append(log_entry)
+    
 plot_predictions(model)
-test(test_dataloader, model)
+
+# %%
+
+df_logs = pd.json_normalize(logs, sep='_').set_index('epoch')
+
+acc_mask = [col for col in df_logs.columns if 'acc' in col]
+loss_mask = [col for col in df_logs.columns if 'loss' in col]  
+param_norm_mask = [col for col in df_logs.columns if 'param_norm' in col] 
+grad_norm_mask = [col for col in df_logs.columns if 'grad_norm' in col] 
+
+fig, axes = plt.subplots(4, 1, figsize=(8,32))
+axes = axes.flatten()
+
+axes[0].plot(df_logs[acc_mask], label=acc_mask)
+axes[0].legend()
+axes[0].set_title('accuracy')
+axes[0].grid()
+
+axes[1].plot(df_logs[loss_mask], label=loss_mask)
+axes[1].legend()
+axes[1].set_title('loss')
+axes[1].grid()
+
+axes[2].plot(df_logs[grad_norm_mask], label=grad_norm_mask)
+axes[2].legend()
+axes[2].set_title('gradient L2 norms')
+axes[2].grid()
+
+axes[3].plot(df_logs[param_norm_mask], label=param_norm_mask)
+axes[3].legend()
+axes[3].set_title('parameter L2 norms')
+axes[3].grid()
 
 
 # %%
