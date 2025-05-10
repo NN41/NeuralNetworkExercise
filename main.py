@@ -13,39 +13,44 @@ print(f"Using {device} device\n")
 
 # %% Generate data
 
-NUM_CLASSES = 10
+NUM_CLASSES = 5
 
 # X_np, y_np = make_moons(n_samples=500, noise=0.15, random_state=0)
-X_np, y_np = make_blobs(n_samples=1000, centers=NUM_CLASSES, n_features=2, random_state=0, cluster_std=1.5)
+X_np, y_np = make_blobs(n_samples=50, centers=NUM_CLASSES, n_features=2, random_state=0, cluster_std=1.5)
 plt.scatter(X_np[:,0], X_np[:,1], c=y_np)
 
 X = torch.tensor(X_np, dtype=torch.float32, device=device)
 y = torch.tensor(y_np).to(device)
 
+
 # %% Create test and train data splits
 
 BATCH_SIZE = 64
-TEST_SPLIT_FRACTION = 0.2
+TEST_FRACTION = 0.2
+VALIDATION_FRACTION = 0.2
 
 # create train and test datasets
 full_dataset = TensorDataset(X, y)
-train_dataset, test_dataset = random_split(full_dataset,
-                                     [1-TEST_SPLIT_FRACTION, TEST_SPLIT_FRACTION],
-                                     torch.Generator().manual_seed(42))
-
-# create dataloader (for batching)
-train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+test_dataset, validation_dataset, subtrain_dataset = random_split(
+    full_dataset,
+    [TEST_FRACTION, VALIDATION_FRACTION, 1-TEST_FRACTION-VALIDATION_FRACTION],
+    torch.Generator().manual_seed(42)
+)
+subtrain_dataloader = DataLoader(subtrain_dataset, batch_size=BATCH_SIZE, shuffle=True)
 test_dataloader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+validation_dataloader = DataLoader(validation_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
 print(f"Full dataset:\n\tExamples: {len(full_dataset)}\n\tShape of X: {X.shape}\n\tShape of y: {y.shape}")
-print(f"Train/test dataloader:\n\tTrain data batches: {len(train_dataloader)}\n\tTest data batches: {len(test_dataloader)}")
-print(f"\n\tTrain batches:")
-for batch, (Xt, yt) in enumerate(train_dataloader):
+print(f"Dataloaders:\n\tSubtrain data batches: {len(subtrain_dataloader)}\n\tValidation data batches: {len(validation_dataloader)}\n\tTest data batches: {len(test_dataloader)}")
+print(f"\n\tSubtrain batches:")
+for batch, (Xt, yt) in enumerate(subtrain_dataloader):
+    print(f"\tBatch {batch+1} | X: shape {tuple(Xt.shape)} | y: shape {tuple(yt.shape)}, dtype {yt.dtype}")
+print(f"\n\tValidation batches:")
+for batch, (Xt, yt) in enumerate(validation_dataloader):
     print(f"\tBatch {batch+1} | X: shape {tuple(Xt.shape)} | y: shape {tuple(yt.shape)}, dtype {yt.dtype}")
 print(f"\n\tTest batches:")
 for batch, (Xt, yt) in enumerate(test_dataloader):
     print(f"\tBatch {batch+1} | X: shape {tuple(Xt.shape)} | y: shape {tuple(yt.shape)}, dtype {yt.dtype}")
-
 
 # %% Functions and classes for creating MLPs and plotting outputs and info
 
@@ -189,12 +194,16 @@ def compute_norms(model):
 
 # %% Perform a single training run
 
-EPOCHS = 2048
+EPOCHS = 1024
 
-model = SimpleMLP(hidden_size=16, activation=nn.ReLU()).to(device)
-optimizer = torch.optim.SGD(model.parameters(), lr=0.05) # must be instantiated AFTER the model
+model = SimpleMLP(hidden_size=128, activation=nn.ReLU()).to(device)
+optimizer = torch.optim.SGD(
+    model.parameters(),
+    lr=0.05,
+    weight_decay=0
+) # must be instantiated AFTER the model
 
-train_acc, train_loss = test(train_dataloader, model, verbose=False)
+train_acc, train_loss = test(subtrain_dataloader, model, verbose=False)
 test_acc, test_loss = test(test_dataloader, model)
 param_l2_norms, grad_l2_norms = compute_norms(model)
 initial_logs = {
@@ -212,9 +221,9 @@ logs.append(initial_logs)
 
 for epoch in range(EPOCHS):
     print(f"\nEpoch {epoch+1}\n-------------------------------------")
-    train(train_dataloader, model, optimizer, verbose=False)
+    train(subtrain_dataloader, model, optimizer, verbose=False)
 
-    train_acc, train_loss = test(train_dataloader, model, verbose=False)
+    train_acc, train_loss = test(subtrain_dataloader, model, verbose=False)
     test_acc, test_loss = test(test_dataloader, model)
     param_l2_norms, grad_l2_norms = compute_norms(model)
     log_entry = {
@@ -232,6 +241,10 @@ plot_predictions(model)
 
 # %%
 
+experiment_info = 'sgd without weight decay'
+
+
+# def plot_training_metrics()
 df_logs = pd.json_normalize(logs, sep='_').set_index('epoch')
 
 acc_mask = [col for col in df_logs.columns if 'acc' in col]
@@ -280,7 +293,7 @@ for act in activations_list:
         acc, avg_loss = test(test_dataloader, model, verbose=False)
         print(f"\tepoch {0:>5d} | acc {100*acc:>3.1f}% | avg loss {avg_loss:>.7f}")
         for e in range(1,max(epochs_list)+1):
-            train(train_dataloader, model, optimizer, verbose=False)
+            train(subtrain_dataloader, model, optimizer, verbose=False)
             if e in epochs_list:
                 acc, avg_loss = test(test_dataloader, model, verbose=False)
                 print(f"\tepoch {e:>5d} | acc {100*acc:>.1f}% | avg loss {avg_loss:>.7f}")
